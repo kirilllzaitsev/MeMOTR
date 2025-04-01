@@ -9,8 +9,9 @@ class TrackInstances:
     """
     Tracked Instances.
     """
-    rot_out_dim=4
-    t_out_dim=3
+
+    rot_out_dim = 4
+    t_out_dim = 3
 
     def __init__(
         self,
@@ -20,8 +21,6 @@ class TrackInstances:
         num_classes: int = 1,
         use_dab: bool = False,
         WITH_BOX_REFINE=True,
-        # rot_out_dim=rot_out_dim,
-        # t_out_dim=t_out_dim,
         **kwargs
     ):
         self.use_dab = use_dab
@@ -29,8 +28,6 @@ class TrackInstances:
         self.frame_width = frame_width
         self.hidden_dim = hidden_dim
         self.num_classes = num_classes
-        # self.rot_out_dim = rot_out_dim
-        # self.t_out_dim = t_out_dim
         if self.use_dab:
             self.ref_pts = torch.zeros((0, 4))
             self.query_embed = torch.zeros((0, hidden_dim))
@@ -44,7 +41,9 @@ class TrackInstances:
         self.boxes = torch.zeros((0, 4))
         self.labels = torch.zeros((0,), dtype=torch.long)
         self.logits = torch.zeros((0, self.num_classes))
-        self.matched_idx = torch.zeros((0,), dtype=torch.long)  # gt idxs that were matched to preds. -1 = non-matched
+        self.matched_idx = torch.zeros(
+            (0,), dtype=torch.long
+        )  # gt idxs that were matched to preds. -1 = non-matched
         self.output_embed = torch.zeros((0, self.hidden_dim))
         self.disappear_time = torch.zeros((0,), dtype=torch.long)
         self.scores = torch.zeros((0,), dtype=torch.float)
@@ -178,4 +177,13 @@ class TrackInstances:
         return tracks
 
     def __repr__(self):
-        return print_cls(self, extra_str=super().__repr__(), excluded_attrs=["query_embed", "long_memory", "last_output", "output_embed"])
+        return print_cls(
+            self,
+            extra_str=super().__repr__(),
+            excluded_attrs=[
+                "query_embed",
+                "long_memory",
+                "last_output",
+                "output_embed",
+            ],
+        )

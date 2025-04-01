@@ -111,8 +111,7 @@ class HungarianMatcher(nn.Module):
                 pos_cost_class = (
                     alpha * ((1 - out_prob) ** gamma) * (-(out_prob + 1e-8).log())
                 )
-                cost_class = pos_cost_class.cpu()[:, tgt_ids.cpu()] - neg_cost_class.cpu()[:, tgt_ids.cpu()]
-                cost_class=cost_class.cuda()
+                cost_class = pos_cost_class[:, tgt_ids] - neg_cost_class[:, tgt_ids]
             else:
                 # Compute the classification cost. Contrary to the loss, we don't use the NLL,
                 # but approximate it in 1 - proba[target class].
