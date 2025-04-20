@@ -9,6 +9,7 @@
 # Modified from DETR (https://github.com/facebookresearch/detr)
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 # ------------------------------------------------------------------------
+from pose_tracking.utils.misc import print_cls
 import torch
 import torch.nn as nn
 from memotr.structures.instances import Instances
@@ -98,8 +99,8 @@ class HungarianMatcher(nn.Module):
                 tgt_ids = torch.cat([gt_per_img.labels for gt_per_img in targets])
                 tgt_bbox = torch.cat([gt_per_img.boxes for gt_per_img in targets])
             else:
-                tgt_ids = torch.cat([v["labels"] for v in targets])
-                tgt_bbox = torch.cat([v["boxes"] for v in targets])
+                tgt_ids = torch.cat([v.labels for v in targets])
+                tgt_bbox = torch.cat([v.boxes for v in targets])
 
             # Compute the classification cost.
             if use_focal:
@@ -111,7 +112,8 @@ class HungarianMatcher(nn.Module):
                 pos_cost_class = (
                     alpha * ((1 - out_prob) ** gamma) * (-(out_prob + 1e-8).log())
                 )
-                cost_class = pos_cost_class[:, tgt_ids] - neg_cost_class[:, tgt_ids]
+                cost_class = pos_cost_class.cpu()[:, tgt_ids.cpu()] - neg_cost_class.cpu()[:, tgt_ids.cpu()]
+                cost_class = cost_class.to(out_prob.device)
             else:
                 # Compute the classification cost. Contrary to the loss, we don't use the NLL,
                 # but approximate it in 1 - proba[target class].
@@ -149,7 +151,7 @@ class HungarianMatcher(nn.Module):
             elif isinstance(targets[0], TrackInstances):
                 sizes = [len(gt_per_img.boxes) for gt_per_img in targets]
             else:
-                sizes = [len(v["boxes"]) for v in targets]
+                sizes = [len(v.boxes) for v in targets]
 
             indices = [
                 linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))
@@ -161,6 +163,9 @@ class HungarianMatcher(nn.Module):
                 )
                 for i, j in indices
             ]
+    
+    def __repr__(self):
+        return print_cls(self, extra_str=super().__repr__())
 
 
 def build(config: dict):
