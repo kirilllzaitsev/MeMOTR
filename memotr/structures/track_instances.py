@@ -1,4 +1,5 @@
 # Copyright (c) Ruopeng Gao. All Rights Reserved.
+from collections import defaultdict
 from typing import List
 
 import torch
@@ -55,6 +56,10 @@ class TrackInstances:
 
         self.rots = torch.zeros((0, self.rot_out_dim))
         self.ts = torch.zeros((0, self.t_out_dim))
+        self.other_attrs = {
+            "mesh_pts": torch.zeros((0, 1000, 3)),
+            "mesh_bbox": torch.zeros((0, 8, 3)),
+        }
 
     def to(self, device):
         res = TrackInstances(
@@ -86,7 +91,7 @@ class TrackInstances:
             num_classes=self.num_classes,
         )
         for k, v in vars(self).items():
-            if hasattr(v, "__getitem__") and v.shape[0] != 0:
+            if hasattr(v, "__getitem__") and hasattr(v, "shape") and v.shape[0] != 0:
                 res.__setattr__(k, v[item])
             else:
                 res.__setattr__(k, v)
@@ -132,11 +137,32 @@ class TrackInstances:
             frame_height=tracked1.frame_height, frame_width=tracked1.frame_width
         )
 
-        for k, v in vars(tracked1).items():
+        for k, v in vars(tracked2).items():
             if type(v) is torch.Tensor:
+                a1 = getattr(tracked1, k)
+                a2 = getattr(tracked2, k)
+                if a1.device.type == "cuda" and a2.device.type == "cpu":
+                    a2 = a2.to(a1.device)
+                elif a1.device.type == "cpu" and a2.device.type == "cuda":
+                    a1 = a1.to(a2.device)
                 res.__setattr__(
-                    k, torch.cat((getattr(tracked1, k), getattr(tracked2, k)))
+                    k, torch.cat((a1, getattr(tracked2, k)))
                 )
+            elif type(v) in [dict, defaultdict]:
+                res.__setattr__(k, defaultdict(list))
+                new_k={}
+                for k2, v2 in v.items():
+                    if type(v2) is torch.Tensor:
+                        a1 = getattr(tracked1, k)[k2]
+                        a2 = getattr(tracked2, k)[k2]
+                        if a1.device.type == "cuda" and a2.device.type == "cpu":
+                            a2 = a2.to(a1.device)
+                        elif a1.device.type == "cpu" and a2.device.type == "cuda":
+                            a1 = a1.to(a2.device)
+                        new_k[k2] = torch.cat((a1, a2))
+                    else:
+                        new_k[k2] = v2
+                res.__setattr__(k, new_k)
         return res
 
     @staticmethod
