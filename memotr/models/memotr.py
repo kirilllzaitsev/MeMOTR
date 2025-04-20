@@ -209,6 +209,10 @@ class MeMOTR(nn.Module):
                     ]
                 )
 
+        if self.do_predict_2d_t:
+            for p in self.t_embed.parameters():
+                p.requires_grad = False
+
     def forward(self, frame: NestedTensor, tracks: list[TrackInstances]):
         if self.visualize:
             os.makedirs("./outputs/visualize_tmp/memotr/", exist_ok=True)
@@ -292,11 +296,12 @@ class MeMOTR(nn.Module):
             output_bboxes.append(output_bbox)
 
             outputs_rot = self.rot_embed[level](outputs[level])
-            outputs_t = self.t_embed[level](outputs[level])
             if self.do_predict_2d_t:
-                outputs_depth = self.depth_embed(outputs[level])
-                outputs_depth.append(outputs_depth)
-                outputs_t = F.sigmoid(outputs_t)
+                output_depth = self.depth_embed[level](outputs[level])
+                outputs_depth.append(output_depth)
+                outputs_t = torch.cat([output_bbox[..., :2], output_depth], dim=-1)
+            else:
+                outputs_t = self.t_embed[level](outputs[level])
             outputs_rots.append(outputs_rot)
             outputs_ts.append(outputs_t)
 
@@ -344,7 +349,9 @@ class MeMOTR(nn.Module):
             "det_query_embed": query_embed[0][: self.n_det_queries],
             "init_ref_pts": inverse_sigmoid(init_reference),
         }
-
+        if self.do_predict_2d_t:
+            outputs_depth = torch.stack(outputs_depth)
+            res["center_depth"] = outputs_depth[-1]
         res["rot"] = outputs_rot[-1]
         res["t"] = outputs_t[-1]
 
@@ -388,7 +395,7 @@ class MeMOTR(nn.Module):
                 for x, r, t in zip(res, outputs_rot[:-1], outputs_t[:-1])
             ]
         if outputs_depth is not None:
-            res = [{**x, "depth": d} for x, d in zip(res, outputs_depth[:-1])]
+            res = [{**x, "center_depth": d} for x, d in zip(res, outputs_depth[:-1])]
 
         return res
 

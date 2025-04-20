@@ -699,12 +699,28 @@ class ClipCriterion:
             gt_trackinstances[b].ts[idx_to_gts_idx[b][1][idx_to_gts_idx[b][1] >= 0]]
             for b in range(len(gt_trackinstances))
         ]
+
         matched_pred_ts = torch.cat(matched_pred_ts)
         gt_ts = torch.cat(gt_ts).to(matched_pred_ts.device)
 
-        loss_l1 = F.mse_loss(
-            input=matched_pred_ts, target=gt_ts, reduction="none"
-        ).sum()
+        if self.t_out_dim == 2:
+            src_depths = torch.cat(
+                [
+                    ts[outputs_idx[0][outputs_idx[1] >= 0]]
+                    for ts, outputs_idx in zip(outputs["center_depth"], idx_to_gts_idx)
+                ]
+            ).squeeze()
+            target_depths = gt_ts[..., -1]
+            if len(target_depths) == 0:
+                return torch.tensor(0).to(matched_pred_ts.device)
+            # cxcy loss comes from bbox
+            loss_l1 = F.mse_loss(src_depths, target_depths, reduction="none")
+            loss_l1 = loss_l1.sum()
+        else:
+            loss_l1 = F.mse_loss(
+                input=matched_pred_ts, target=gt_ts, reduction="none"
+            ).sum()
+
         return loss_l1
 
 
@@ -779,4 +795,5 @@ def build(config: dict, num_classes=None):
         rot_out_dim=config["rot_out_dim"],
         t_out_dim=config["t_out_dim"],
         WITH_BOX_REFINE=config["WITH_BOX_REFINE"],
+        rot_loss_name=config["rot_loss_name"],
     )
