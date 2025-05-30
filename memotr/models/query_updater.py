@@ -358,6 +358,12 @@ class QueryUpdater(nn.Module):
                     fake_tracks.long_memory = torch.randn(
                         (1, self.hidden_dim), dtype=torch.float, device=device
                     )
+                    fake_tracks.ts = torch.randn(
+                        (1, TrackInstances.t_out_dim), dtype=torch.float, device=device
+                    )
+                    fake_tracks.rots = torch.randn(
+                        (1, TrackInstances.rot_out_dim), dtype=torch.float, device=device
+                    )
                     active_tracks = fake_tracks
                 tracks.append(active_tracks)
         else:
