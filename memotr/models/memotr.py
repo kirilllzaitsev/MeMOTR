@@ -4,6 +4,12 @@ import math
 import os
 from typing import List
 
+from einops import rearrange
+from pose_tracking.models.cnnlstm import MLP
+from pose_tracking.models.detr import CNNFeatureExtractor
+from pose_tracking.utils.detr_utils import get_crops
+from pose_tracking.utils.misc import print_cls
+from pose_tracking.utils.vis import box_cxcywh_to_xyxy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,7 +23,7 @@ from .backbone import build as build_backbone_with_pe
 from .deformable_transformer import DeformableTransformer
 from .deformable_transformer import build as build_deformable_transformer
 from .ffn import FFN
-from .mlp import MLP
+# from .mlp import MLP
 from .query_updater import build as build_query_updater, QueryUpdater
 from .utils import get_clones, pos_to_pos_embed
 
@@ -50,6 +56,8 @@ class MeMOTR(nn.Module):
         use_boxes=True,
         head_num_layers=2,
         head_hidden_dim=256,
+        r_num_layers_inc=0,
+        use_roi=False,
     ):
         super(MeMOTR, self).__init__()
 
@@ -75,6 +83,7 @@ class MeMOTR(nn.Module):
         self.use_kpts_as_ref_pt = use_kpts_as_ref_pt
         self.use_kpts_as_img = use_kpts_as_img
         self.use_boxes = use_boxes
+        self.use_roi = use_roi
 
         self.do_predict_2d_t = t_out_dim == 2
 
@@ -87,40 +96,49 @@ class MeMOTR(nn.Module):
         )
         if use_boxes:
             self.bbox_embed = MLP(
-                input_dim=self.hidden_dim,
+                in_dim=self.hidden_dim,
                 hidden_dim=self.hidden_dim,
-                output_dim=4,
+                out_dim=4,
                 num_layers=3,
             )
         else:
             self.bbox_embed = MLP(
-                input_dim=self.hidden_dim,
+                in_dim=self.hidden_dim,
                 hidden_dim=self.hidden_dim,
-                output_dim=4,
+                out_dim=4,
                 num_layers=1,
             )
             for p in self.bbox_embed.parameters():
                 p.requires_grad = False
 
         self.rot_embed = MLP(
-            self.hidden_dim,
+            self.hidden_dim * (2 if use_roi else 1),
             hidden_dim=head_hidden_dim,
-            output_dim=rot_out_dim,
-            num_layers=head_num_layers,
+            out_dim=rot_out_dim,
+            num_layers=head_num_layers+r_num_layers_inc,
+            dropout=dropout_heads,
+            act="relu",
         )
         self.t_embed = MLP(
             self.hidden_dim,
             hidden_dim=head_hidden_dim,
-            output_dim=t_out_dim,
+            out_dim=t_out_dim,
             num_layers=head_num_layers,
+            dropout=dropout_heads,
+            act="relu",
         )
         if self.do_predict_2d_t:
             self.depth_embed = MLP(
                 self.hidden_dim,
                 hidden_dim=head_hidden_dim,
-                output_dim=1,
+                out_dim=1,
                 num_layers=head_num_layers,
+                dropout=dropout_heads,
+                act="relu",
             )
+        
+        if self.use_roi:
+            self.roi_cnn = CNNFeatureExtractor(out_dim=self.hidden_dim, model_name="resnet50")
 
         if self.use_dab:
             self.det_anchor = nn.Parameter(
@@ -557,8 +575,19 @@ def build(config: dict, num_classes=None):
         use_boxes=use_boxes,
         head_num_layers=head_num_layers,
         head_hidden_dim=head_hidden_dim,
+        r_num_layers_inc=config.get("r_num_layers_inc", 0),
+        use_roi=config.get("use_roi", False),
     )
 
+
+def build_model(config: dict, num_classes=None):
+    from memotr.utils.utils import distributed_rank
+    model = build(config=config, num_classes=num_classes)
+    if config["AVAILABLE_GPUS"] is not None and config["DEVICE"] == "cuda":
+        model.to(device=torch.device(config["DEVICE"], distributed_rank()))
+    else:
+        model.to(device=torch.device(config["DEVICE"]))
+    return model
 
 if __name__ == "__main__":
     ...
