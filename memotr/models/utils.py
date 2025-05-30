@@ -8,8 +8,9 @@ import torch
 import torch.distributed
 import torch.nn as nn
 import torch.optim as optim
-from memotr.utils.utils import distributed_rank, is_distributed, is_main_process
 from torch.nn.parallel import DistributedDataParallel as DDP
+
+from memotr.utils.utils import distributed_rank, is_distributed, is_main_process
 
 
 def save_checkpoint(
@@ -111,7 +112,7 @@ def load_pretrained_model(
     if not is_main_process():
         return model
     pretrained_checkpoint = torch.load(
-        pretrained_path, map_location=lambda storage, loc: storage
+        pretrained_path, map_location=lambda storage, loc: storage, weights_only=False
     )
     pretrained_state_dict = pretrained_checkpoint["model"]
     model_state_dict = model.state_dict()
@@ -131,14 +132,22 @@ def load_pretrained_model(
                         pretrained_state_dict[k] = model_state_dict[k]
                         # We directly do not use the pretrained class embed for BDD100K
                     else:
-                        raise NotImplementedError(
-                            "invalid shape: {}".format(model_state_dict[k].shape)
+                        print(
+                            f"WARNING: Pretrained model's class num is {pretrained_state_dict[k].shape[0]}, "
+                            f"current model's class num is {model_state_dict[k].shape[0]}, "
+                            f"do not load these parameters."
                         )
-                else:
+                        pretrained_state_dict[k] = model_state_dict[k]
+                elif "rot_embed" in k or k.startswith("t_embed"):
+                    print(f"{k=}. {pretrained_state_dict[k].shape} != {model_state_dict[k].shape=}")
+                    pretrained_state_dict[k] = model_state_dict[k]
+                elif "det_anchor" in k or "det_query_embed" in k:
                     print(
-                        f"Parameter {k} has shape{pretrained_state_dict[k].shape} in pretrained model, "
-                        f"but get shape{model_state_dict[k].shape} in current model."
+                        f"WARNING: Pretrained model's {k=} is {pretrained_state_dict[k].shape}, "
+                        f"current model's {k=} is {model_state_dict[k].shape}, "
                     )
+                    # assert pretrained_state_dict[k].shape[0] <= model_state_dict[k].shape[0]
+                    pretrained_state_dict[k] = pretrained_state_dict[k][:model_state_dict[k].shape[0]]
         elif "query_embed" in k:
             if (
                 pretrained_state_dict[k].shape
@@ -194,26 +203,31 @@ def load_pretrained_model(
     for k in pretrained_state_dict:
         if k not in model_state_dict:
             not_in_model += 1
+
             if show_details:
                 print(
                     f"Parameter {k} in the pretrained model but not in the current model."
                 )
 
     not_in_pretrained = 0
+    mismatched_ks = []
     for k in model_state_dict:
         if k not in pretrained_state_dict:
             pretrained_state_dict[k] = model_state_dict[k]
             not_in_pretrained += 1
-            if show_details:
+            mismatched_ks.append(k)
+    # 80 missing from dab-def-detr ckpt by default
+    if not_in_pretrained != 80:
+        if show_details:
+            for k in mismatched_ks:
+                if k.startswith("query_updater"):
+                    continue
                 print(
                     f"There is a new parameter {k} in the current model, but not in the pretrained model."
                 )
 
     model.load_state_dict(state_dict=pretrained_state_dict, strict=False)
-    print(
-        f"Pretrained model is loaded, there are {not_in_model} parameters droped "
-        f"and {not_in_pretrained} parameters unloaded, set 'show details' True to see more details."
-    )
+    print(f"{not_in_model} parameters not in model, {not_in_pretrained} not in ckpt")
 
     return model
 
