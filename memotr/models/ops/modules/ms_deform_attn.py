@@ -54,6 +54,9 @@ class MSDeformAttn(nn.Module):
 
         self.im2col_step = 64
         self.sigmoid_attn = sigmoid_attn
+        
+        self.do_vis = True
+        self.do_vis = False
 
         self.d_model = d_model
         self.n_levels = n_levels
@@ -68,6 +71,10 @@ class MSDeformAttn(nn.Module):
         self.visualize = visualize
 
         self.reset_parameters()
+
+        if self.do_vis:
+            self.outs={}
+            self.out_counter=0
 
     def reset_parameters(self):
         constant_(self.sampling_offsets.weight.data, 0.)
@@ -124,6 +131,21 @@ class MSDeformAttn(nn.Module):
         if self.visualize:
             torch.save(sampling_locations[0].cpu(),
                        "./outputs/visualize_tmp/decoder/sampling_locations.tensor")
+        if self.do_vis:
+            point = []
+            attention_weight = []
+
+
+            sampling_locations_vis = sampling_locations.detach().cpu()
+            attention_weights_vis = attention_weights.detach().cpu()
+            bidx=0
+            point=(sampling_locations_vis[bidx,:,:,:,:,:])
+            attention_weight=(attention_weights_vis[bidx,:,:,:,:])
+            self.outs.update({self.out_counter: {'point': point, 'attention_weight': attention_weight,
+                                                 'input_flatten': input_flatten.detach().cpu(),
+                                                 'input_spatial_shapes': input_spatial_shapes.detach().cpu()}})
+            self.out_counter+=1
+            print(f"{self.out_counter=}")
         output = MSDeformAttnFunction.apply(
             value, input_spatial_shapes, input_level_start_index, sampling_locations, attention_weights, self.im2col_step)
         output = self.output_proj(output)
