@@ -16,7 +16,7 @@ COCO_SIZE: true
 CONFIG_PATH: ./outputs/memotr_mot17/train/config.yaml
 DATASET: MOT17
 DATA_PATH: null
-DATA_ROOT: /media/master/t7/msc_studies/pose_estimation/object_pose_tracking/data/MOT17/train_subset
+DATA_ROOT: /mnt/t7/msc_studies/pose_estimation/object_pose_tracking/data/MOT17/train_subset
 DET_SCORE_THRESH: 0.5
 DEVICE: cuda
 DROPOUT: 0.0

@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from memotr.data.seq_dataset import SeqDataset
 from memotr.log.logger import Logger
-from memotr.models import build_model
+from memotr.models.memotr import build_model
 from memotr.models.runtime_tracker import RuntimeTracker
 from memotr.models.utils import get_model, load_checkpoint
 from memotr.structures.track_instances import TrackInstances

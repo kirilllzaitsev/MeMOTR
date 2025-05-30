@@ -202,6 +202,23 @@ class TrackInstances:
             tracks.append(track)
         return tracks
 
+    def clone(self):
+        """
+        Clone the TrackInstances.
+        """
+        res = TrackInstances(
+            frame_height=self.frame_height,
+            frame_width=self.frame_width,
+            hidden_dim=self.hidden_dim,
+            num_classes=self.num_classes,
+        )
+        for k, v in vars(self).items():
+            if hasattr(v, "clone"):
+                res.__setattr__(k, v.clone())
+            else:
+                res.__setattr__(k, v)
+        return res
+
     def __repr__(self):
         return print_cls(
             self,

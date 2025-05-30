@@ -10,7 +10,7 @@ import torch.nn as nn
 from memotr.data import build_dataloader, build_dataset, build_sampler
 from memotr.log.log import MetricLog
 from memotr.log.logger import Logger, ProgressLogger
-from memotr.models import build_model
+from memotr.models.memotr import build_model
 from memotr.models.criterion import ClipCriterion
 from memotr.models.criterion import build as build_criterion
 from memotr.models.memotr import MeMOTR
