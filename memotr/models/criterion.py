@@ -15,13 +15,18 @@ from typing import Dict, List, Tuple
 import torch
 import torch.distributed
 import torch.nn.functional as F
+from pose_tracking.dataset.ds_meta import YCBV_OBJ_ID_TO_NAME, YCBV_SYMMETRY_OBJ_NAMES
+from pose_tracking.losses import compute_add_loss, compute_adds_loss, geodesic_loss_mat
+from pose_tracking.metrics import accuracy
+from pose_tracking.utils.pose import convert_rot_vector_to_matrix
+
 from memotr.structures.track_instances import TrackInstances
 from memotr.utils.box_ops import box_cxcywh_to_xyxy, box_iou_union, generalized_box_iou
 from memotr.utils.utils import distributed_world_size, is_distributed
 
 from .matcher import HungarianMatcher
 from .matcher import build as build_matcher
-
+from pose_tracking.utils.misc import print_cls
 
 class ClipCriterion:
     def __init__(
@@ -40,6 +45,9 @@ class ClipCriterion:
         rot_out_dim=4,
         t_out_dim=3,
         WITH_BOX_REFINE=True,
+        use_rel_pose=False,
+        rot_loss_name="mse",
+        uncertainty_coef=0.1,
     ):
         """
         Init a criterion function.
@@ -69,6 +77,7 @@ class ClipCriterion:
         self.rot_out_dim = rot_out_dim
         self.t_out_dim = t_out_dim
         self.WITH_BOX_REFINE = WITH_BOX_REFINE
+        self.uncertainty_coef = uncertainty_coef
 
         self.gt_trackinstances_list: None | List[List[TrackInstances]] = (
             None  # (clip_size, B)
@@ -77,6 +86,9 @@ class ClipCriterion:
         self.log = {}
         self.n_gts = []
         self.img_key = "image"
+
+        self.use_rel_pose = use_rel_pose
+        self.rot_loss_name = rot_loss_name
 
     def set_device(self, device: torch.device):
         self.device = device
@@ -112,6 +124,9 @@ class ClipCriterion:
                 gt_trackinstances[b].labels = batch["target"][b][c]["labels"]
                 gt_trackinstances[b].boxes = batch["target"][b][c]["boxes"]
                 gt_trackinstances[b].rots = batch["target"][b][c]["rot"]
+                gt_trackinstances[b].other_attrs["mesh_pts"] = batch["target"][b][c][
+                    "mesh_pts"
+                ]
                 gt_trackinstances[b].ts = batch["target"][b][c]["t"]
                 gt_trackinstances[b] = gt_trackinstances[b].to(self.device)
             self.gt_trackinstances_list.append(gt_trackinstances)
@@ -285,6 +300,9 @@ class ClipCriterion:
             )
             trackinstances.ids = gt_ids
             trackinstances.matched_idx = gt_idx
+            trackinstances.other_attrs["mesh_pts"] = untracked_gt_trackinstances[
+                b
+            ].other_attrs["mesh_pts"]
             # trackinstances.query_embed = model_outputs["aux_outputs"][-1]["queries"][b][output_idx]
             if self.use_dab:
                 trackinstances.query_embed = model_outputs["aux_outputs"][-1][
@@ -686,8 +704,9 @@ class ClipCriterion:
         ).sum()
         return loss_l1
 
-    @staticmethod
-    def get_loss_t(outputs, gt_trackinstances: List[TrackInstances], idx_to_gts_idx):
+    def get_loss_t(
+        self, outputs, gt_trackinstances: List[TrackInstances], idx_to_gts_idx
+    ):
         """
         Computer the bounding t loss
         """
@@ -709,7 +728,7 @@ class ClipCriterion:
                     ts[outputs_idx[0][outputs_idx[1] >= 0]]
                     for ts, outputs_idx in zip(outputs["center_depth"], idx_to_gts_idx)
                 ]
-            ).squeeze()
+            ).squeeze(-1)
             target_depths = gt_ts[..., -1]
             if len(target_depths) == 0:
                 return torch.tensor(0).to(matched_pred_ts.device)
@@ -779,8 +798,8 @@ def build(config: dict, num_classes=None):
             # "box_l1_loss": 0,
             # "box_giou_loss": 0,
             # "label_focal_loss": 0,
-            "rot_loss": 1,
-            "t_loss": 1,
+            "rot_loss": config["LOSS_WEIGHT_ROT"],
+            "t_loss": config["LOSS_WEIGHT_T"],
         },
         max_frame_length=max(config["SAMPLE_LENGTHS"]),
         n_aux=config["NUM_DEC_LAYERS"] - 1,
