@@ -683,8 +683,9 @@ class ClipCriterion:
         ).sum()
         return loss_l1, loss_giou
 
-    @staticmethod
-    def get_loss_rot(outputs, gt_trackinstances: List[TrackInstances], idx_to_gts_idx):
+    def get_loss_rot(
+        self, outputs, gt_trackinstances: List[TrackInstances], idx_to_gts_idx
+    ):
         """
         Computer the bounding rot loss
         """
@@ -699,9 +700,73 @@ class ClipCriterion:
         matched_pred_rots = torch.cat(matched_pred_rots)
         gt_rots = torch.cat(gt_rots).to(matched_pred_rots.device)
 
-        loss_l1 = F.mse_loss(
-            input=matched_pred_rots, target=gt_rots, reduction="none"
-        ).sum()
+        if self.rot_loss_name in ["adds", "geodesic_mat"]:
+
+            is_sym = torch.cat(
+                [
+                    torch.tensor([YCBV_OBJ_ID_TO_NAME[oid] in YCBV_SYMMETRY_OBJ_NAMES])
+                    for oid in torch.cat(
+                        [
+                            gt_trackinstances[b].labels[
+                                idx_to_gts_idx[b][1][idx_to_gts_idx[b][1] >= 0]
+                            ]
+                            for b in range(len(gt_trackinstances))
+                        ]
+                    ).tolist()
+                ]
+            )
+            if self.rot_loss_name == "adds":
+                mesh_pts = torch.cat(
+                    [
+                        gt_trackinstances[b].other_attrs["mesh_pts"][
+                            idx_to_gts_idx[b][1][idx_to_gts_idx[b][1] >= 0]
+                        ]
+                        for b in range(len(gt_trackinstances))
+                    ]
+                )
+                mesh_pts_sym = mesh_pts[is_sym]
+                mesh_pts_asym = mesh_pts[~is_sym]
+            matched_pred_rot_mats = convert_rot_vector_to_matrix(matched_pred_rots)
+            gt_rot_mats = convert_rot_vector_to_matrix(gt_rots)
+            pred_rot_mats_sym = matched_pred_rot_mats[is_sym]
+            gt_rot_mats_sym = gt_rot_mats[is_sym]
+            pred_rot_mats_asym = matched_pred_rot_mats[~is_sym]
+            gt_rot_mats_asym = gt_rot_mats[~is_sym]
+            loss_l1 = torch.tensor(0.0).to(matched_pred_rot_mats.device)
+            if (~is_sym).any():
+                if self.rot_loss_name == "adds":
+                    loss_l1_asym = compute_add_loss(
+                        pred_rot_mats_asym,
+                        pose_gt=gt_rot_mats_asym,
+                        pts=mesh_pts_asym.to(matched_pred_rot_mats.device) * 1e1,
+                    )
+                else:
+                    loss_l1_asym = 1e-1 * geodesic_loss_mat(
+                        pred_rot_mats_asym, gt_rot_mats_asym
+                    )
+                loss_l1 += loss_l1_asym * (~is_sym).sum()  # later div by num gts
+            if (is_sym).any():
+                if self.rot_loss_name == "adds":
+                    loss_l1_sym = compute_adds_loss(
+                        pred_rot_mats_sym,
+                        pose_gt=gt_rot_mats_sym,
+                        pts=mesh_pts_sym.to(matched_pred_rot_mats.device) * 1e1,
+                    )
+                else:
+                    loss_l1_sym = 1e-1 * geodesic_loss_mat(
+                        pred_rot_mats_sym, gt_rot_mats_sym, sym_type="full"
+                    )
+                loss_l1 += loss_l1_sym * (is_sym).sum()
+            if torch.isnan(loss_l1):
+                print(f"{loss_l1=}")
+                print(f"{matched_pred_rot_mats=}")
+                print(f"{gt_rot_mats=}")
+                raise RuntimeError("loss rot is nan")
+        else:
+            loss_l1 = F.mse_loss(
+                input=matched_pred_rots, target=gt_rots, reduction="none"
+            ).sum()
+
         return loss_l1
 
     def get_loss_t(
